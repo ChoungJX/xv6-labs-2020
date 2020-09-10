@@ -95,3 +95,17 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+
+int
+sys_trace(void){
+  int syscall_number; 
+
+  if(argint(0, &syscall_number) < 0)
+    return -1;
+
+  myproc()->trace_mask = syscall_number;
+
+  return 0;
+
+}
