@@ -80,3 +80,23 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+int
+freemem_info()
+{
+  struct run* r;
+  int page_number = 0;
+
+  acquire(&kmem.lock);
+  r = kmem.freelist;
+
+  while (r)
+  {
+    page_number++;
+    r=r->next;  //I think kmem is a linklist controlling the free memory.
+  }
+  release(&kmem.lock);
+
+  return PGSIZE*page_number;
+  
+}
