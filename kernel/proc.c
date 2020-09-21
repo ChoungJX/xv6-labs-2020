@@ -20,6 +20,8 @@ static void wakeup1(struct proc *chan);
 static void freeproc(struct proc *p);
 
 extern char trampoline[]; // trampoline.S
+extern char etext[];  // kernel.ld sets this to end of kernel code.
+extern pagetable_t kernel_pagetable;
 
 // initialize the proc table at boot time.
 void
@@ -121,6 +123,19 @@ found:
     return 0;
   }
 
+  //  Setting a kernel page table for per process
+  pagetable_t kpagetable = per_kvminit(p->kstack);
+  if(kpagetable == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
+  p->kpagetable = kpagetable;
+  
+
+
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -141,7 +156,10 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+  if(p->kpagetable)
+    per_proc_freepagetable(p);
   p->pagetable = 0;
+  p->kpagetable = 0;
   p->sz = 0;
   p->pid = 0;
   p->parent = 0;
@@ -193,6 +211,12 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
   uvmfree(pagetable, sz);
+}
+
+void
+per_proc_freepagetable(struct proc* p)
+{
+  per_kvfree(p->kpagetable, p->kstack);
 }
 
 // a user program that calls exec("/init")
@@ -463,6 +487,7 @@ scheduler(void)
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
+    kvminithart();
     
     int found = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
@@ -473,6 +498,7 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        per_kvminithart(p->kpagetable);
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
@@ -486,6 +512,7 @@ scheduler(void)
 #if !defined (LAB_FS)
     if(found == 0) {
       intr_on();
+      kvminithart();
       asm volatile("wfi");
     }
 #else

@@ -47,12 +47,20 @@ kvminit()
   kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 }
 
+
 // Switch h/w page table register to the kernel's page table,
 // and enable paging.
 void
 kvminithart()
 {
   w_satp(MAKE_SATP(kernel_pagetable));
+  sfence_vma();
+}
+
+void
+per_kvminithart(pagetable_t pagetable)
+{
+  w_satp(MAKE_SATP(pagetable));
   sfence_vma();
 }
 
@@ -88,6 +96,48 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
   return &pagetable[PX(0, va)];
 }
 
+pagetable_t
+per_kvminit(uint64 kstack){
+  pagetable_t per_kpagetable = (pagetable_t) kalloc();
+  if(per_kpagetable == 0){
+    return 0;
+  }
+
+  memset(per_kpagetable, 0, PGSIZE);
+
+  // uart registers
+  per_kvmmap(per_kpagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+
+  // virtio mmio disk interface
+  per_kvmmap(per_kpagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+
+  // CLINT
+  per_kvmmap(per_kpagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+
+  // PLIC
+  per_kvmmap(per_kpagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+
+  // map kernel text executable and read-only.
+  per_kvmmap(per_kpagetable, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+
+  // map kernel data and the physical RAM we'll make use of.
+  per_kvmmap(per_kpagetable, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+
+  // map the trampoline for trap entry/exit to
+  // the highest virtual address in the kernel.
+  per_kvmmap(per_kpagetable, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+
+  pte_t* pte;
+  pte = walk(kernel_pagetable, kstack, 0);
+  uint64 pa = PTE2PA(*pte);
+  if(pa == 0){
+    return 0;
+  }
+
+  per_kvmmap(per_kpagetable, kstack, pa, PGSIZE, PTE_R | PTE_W);
+  return per_kpagetable;
+}
+
 // Look up a virtual address, return the physical address,
 // or 0 if not mapped.
 // Can only be used to look up user pages.
@@ -118,6 +168,13 @@ void
 kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
 {
   if(mappages(kernel_pagetable, va, sz, pa, perm) != 0)
+    panic("kvmmap");
+}
+
+void
+per_kvmmap(pagetable_t kpagetable,uint64 va, uint64 pa, uint64 sz, int perm)
+{
+  if(mappages(kpagetable, va, sz, pa, perm) != 0)
     panic("kvmmap");
 }
 
@@ -167,6 +224,28 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   return 0;
 }
 
+int
+per_mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
+{
+  uint64 a, last;
+  pte_t *pte;
+
+  a = PGROUNDDOWN(va);
+  last = PGROUNDDOWN(va + size - 1);
+  for(;;){
+    if((pte = walk(pagetable, a, 1)) == 0)
+      return -1;
+    if(*pte & PTE_V)
+      panic("remap");
+    *pte = PA2PTE(pa) | perm | PTE_V;
+    if(a == last)
+      break;
+    a += PGSIZE;
+    pa += PGSIZE;
+  }
+  return 0;
+}
+
 // Remove npages of mappings starting from va. va must be
 // page-aligned. The mappings must exist.
 // Optionally free the physical memory.
@@ -190,6 +269,27 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
     }
+    *pte = 0;
+  }
+}
+
+void
+per_uvmunmap(pagetable_t pagetable, uint64 va, uint64 size)
+{
+  uint64 a, last;
+  pte_t *pte;
+
+  a = PGROUNDDOWN(va);
+  last = PGROUNDDOWN(va + size - 1);
+
+  for(;a<=last;a+=PGSIZE){
+    if((pte = walk(pagetable, a, 0)) == 0)
+      panic("per_uvmunmap: walk");
+    if((*pte & PTE_V) == 0)
+      panic("per_uvmunmap: not mapped");
+    if(PTE_FLAGS(*pte) == PTE_V)
+      panic("per_uvmunmap: not a leaf");
+
     *pte = 0;
   }
 }
@@ -458,4 +558,17 @@ vmprint(pagetable_t pagetable)
       }
     }
   }
+}
+
+void
+per_kvfree(pagetable_t kpagetable, uint64 kstack){
+  per_uvmunmap(kpagetable, UART0, PGSIZE);
+  per_uvmunmap(kpagetable, VIRTIO0, PGSIZE);
+  per_uvmunmap(kpagetable, CLINT, 0x10000);
+  per_uvmunmap(kpagetable, PLIC, 0x400000);
+  per_uvmunmap(kpagetable, KERNBASE, (uint64)etext-KERNBASE);
+  per_uvmunmap(kpagetable,(uint64)etext, PHYSTOP - (uint64)etext);
+  per_uvmunmap(kpagetable, TRAMPOLINE, PGSIZE);
+  per_uvmunmap(kpagetable, kstack, PGSIZE);
+  freewalk(kpagetable);
 }
