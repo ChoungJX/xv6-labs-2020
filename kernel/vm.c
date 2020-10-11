@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -97,7 +99,7 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
 }
 
 pagetable_t
-per_kvminit(uint64 kstack){
+per_kvminit(struct proc* p){
   pagetable_t per_kpagetable = (pagetable_t) kalloc();
   if(per_kpagetable == 0){
     return 0;
@@ -111,8 +113,12 @@ per_kvminit(uint64 kstack){
   // virtio mmio disk interface
   per_kvmmap(per_kpagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
 
+  // It seems that the CLINT's addr is lower than PLIC's
+  // But the lab require to limit the prevent user processes 
+  // from growing larger than the PLIC address.
+  // So, I just omitted the CLINT
   // CLINT
-  per_kvmmap(per_kpagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  // per_kvmmap(per_kpagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
 
   // PLIC
   per_kvmmap(per_kpagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
@@ -126,15 +132,16 @@ per_kvminit(uint64 kstack){
   // map the trampoline for trap entry/exit to
   // the highest virtual address in the kernel.
   per_kvmmap(per_kpagetable, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+  per_kvmmap(per_kpagetable, TRAPFRAME, (uint64)(p->trapframe), PGSIZE, PTE_R | PTE_W);
 
   pte_t* pte;
-  pte = walk(kernel_pagetable, kstack, 0);
+  pte = walk(kernel_pagetable, p->kstack, 0);
   uint64 pa = PTE2PA(*pte);
   if(pa == 0){
     return 0;
   }
 
-  per_kvmmap(per_kpagetable, kstack, pa, PGSIZE, PTE_R | PTE_W);
+  per_kvmmap(per_kpagetable, p->kstack, pa, PGSIZE, PTE_R | PTE_W);
   return per_kpagetable;
 }
 
@@ -224,27 +231,6 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   return 0;
 }
 
-int
-per_mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
-{
-  uint64 a, last;
-  pte_t *pte;
-
-  a = PGROUNDDOWN(va);
-  last = PGROUNDDOWN(va + size - 1);
-  for(;;){
-    if((pte = walk(pagetable, a, 1)) == 0)
-      return -1;
-    if(*pte & PTE_V)
-      panic("remap");
-    *pte = PA2PTE(pa) | perm | PTE_V;
-    if(a == last)
-      break;
-    a += PGSIZE;
-    pa += PGSIZE;
-  }
-  return 0;
-}
 
 // Remove npages of mappings starting from va. va must be
 // page-aligned. The mappings must exist.
@@ -269,27 +255,6 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
     }
-    *pte = 0;
-  }
-}
-
-void
-per_uvmunmap(pagetable_t pagetable, uint64 va, uint64 size)
-{
-  uint64 a, last;
-  pte_t *pte;
-
-  a = PGROUNDDOWN(va);
-  last = PGROUNDDOWN(va + size - 1);
-
-  for(;a<=last;a+=PGSIZE){
-    if((pte = walk(pagetable, a, 0)) == 0)
-      panic("per_uvmunmap: walk");
-    if((*pte & PTE_V) == 0)
-      panic("per_uvmunmap: not mapped");
-    if(PTE_FLAGS(*pte) == PTE_V)
-      panic("per_uvmunmap: not a leaf");
-
     *pte = 0;
   }
 }
@@ -476,99 +441,150 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 // Copy from user to kernel.
 // Copy len bytes to dst from virtual address srcva in a given page table.
 // Return 0 on success, -1 on error.
+// int
+// copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
+// {
+//   uint64 n, va0, pa0;
+
+//   while(len > 0){
+//     va0 = PGROUNDDOWN(srcva);
+//     pa0 = walkaddr(pagetable, va0);
+//     if(pa0 == 0)
+//       return -1;
+//     n = PGSIZE - (srcva - va0);
+//     if(n > len)
+//       n = len;
+//     memmove(dst, (void *)(pa0 + (srcva - va0)), n);
+
+//     len -= n;
+//     dst += n;
+//     srcva = va0 + PGSIZE;
+//   }
+//   return 0;
+// }
+
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
-  uint64 n, va0, pa0;
-
-  while(len > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > len)
-      n = len;
-    memmove(dst, (void *)(pa0 + (srcva - va0)), n);
-
-    len -= n;
-    dst += n;
-    srcva = va0 + PGSIZE;
-  }
-  return 0;
+  return copyin_new(pagetable, dst, srcva, len);
 }
 
 // Copy a null-terminated string from user to kernel.
 // Copy bytes to dst from virtual address srcva in a given page table,
 // until a '\0', or max.
 // Return 0 on success, -1 on error.
+// int
+// copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
+// {
+//   uint64 n, va0, pa0;
+//   int got_null = 0;
+
+//   while(got_null == 0 && max > 0){
+//     va0 = PGROUNDDOWN(srcva);
+//     pa0 = walkaddr(pagetable, va0);
+//     if(pa0 == 0)
+//       return -1;
+//     n = PGSIZE - (srcva - va0);
+//     if(n > max)
+//       n = max;
+
+//     char *p = (char *) (pa0 + (srcva - va0));
+//     while(n > 0){
+//       if(*p == '\0'){
+//         *dst = '\0';
+//         got_null = 1;
+//         break;
+//       } else {
+//         *dst = *p;
+//       }
+//       --n;
+//       --max;
+//       p++;
+//       dst++;
+//     }
+
+//     srcva = va0 + PGSIZE;
+//   }
+//   if(got_null){
+//     return 0;
+//   } else {
+//     return -1;
+//   }
+// }
+
 int
-copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
-{
-  uint64 n, va0, pa0;
-  int got_null = 0;
-
-  while(got_null == 0 && max > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > max)
-      n = max;
-
-    char *p = (char *) (pa0 + (srcva - va0));
-    while(n > 0){
-      if(*p == '\0'){
-        *dst = '\0';
-        got_null = 1;
-        break;
-      } else {
-        *dst = *p;
-      }
-      --n;
-      --max;
-      p++;
-      dst++;
-    }
-
-    srcva = va0 + PGSIZE;
-  }
-  if(got_null){
-    return 0;
-  } else {
-    return -1;
-  }
+copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max){
+  return copyinstr_new(pagetable, dst, srcva, max);
 }
 
-
+//Just print the PTEs which have been used...
 void
 vmprint(pagetable_t pagetable)
 {
   printf("page table %p\n",pagetable);
   for(int i = 0; i < 512; i++){
     pte_t pte_1 = pagetable[i];
-    printf("..%d: pte %p pa %p\n",i,pte_1,PTE2PA(pte_1));
-    for(int j = 0; j < 512; j++){
-      pte_t pte_2 = PTE2PA(pte_1);
-      printf(".. ..%d: pte %p pa %p\n",j,pte_2,PTE2PA(pte_2));
-      for(int k = 0; k < 512; k++){
-        pte_t pte_3 = PTE2PA(pte_2);
-        printf(".. .. ..%d: pte %p pa %p\n",k,pte_3,PTE2PA(pte_3));
+    if(pte_1 & PTE_V){
+      printf("..%d: pte %p pa %p\n",i,pte_1,PTE2PA(pte_1));
+
+      pagetable_t pa_level2 = (pagetable_t)PTE2PA(pte_1);
+      for(int j = 0; j < 512; j++){
+        pte_t pte_2 = pa_level2[j];
+        if(pte_2 & PTE_V){
+          printf(".. ..%d: pte %p pa %p\n",j,pte_2,PTE2PA(pte_2));
+
+          pagetable_t pa_level3 = (pagetable_t)PTE2PA(pte_2);
+          for(int k = 0; k < 512; k++){
+            pte_t pte_3 = pa_level3[k];
+            if(pte_3 & PTE_V)
+              printf(".. .. ..%d: pte %p pa %p\n",k,pte_3,PTE2PA(pte_3));
+          }
+        }
       }
     }
+      
   }
 }
 
 void
-per_kvfree(pagetable_t kpagetable, uint64 kstack){
-  per_uvmunmap(kpagetable, UART0, PGSIZE);
-  per_uvmunmap(kpagetable, VIRTIO0, PGSIZE);
-  per_uvmunmap(kpagetable, CLINT, 0x10000);
-  per_uvmunmap(kpagetable, PLIC, 0x400000);
-  per_uvmunmap(kpagetable, KERNBASE, (uint64)etext-KERNBASE);
-  per_uvmunmap(kpagetable,(uint64)etext, PHYSTOP - (uint64)etext);
-  per_uvmunmap(kpagetable, TRAMPOLINE, PGSIZE);
-  per_uvmunmap(kpagetable, kstack, PGSIZE);
-  freewalk(kpagetable);
+per_kvfree(pagetable_t kpagetable){
+  for (int i = 0; i < 512; i++) {
+		pte_t pte = kpagetable[i];
+		if (pte & PTE_V) {
+			kpagetable[i] = 0;
+			if ((pte & (PTE_R|PTE_W|PTE_X)) == 0) {
+				uint64 child = PTE2PA(pte);
+				per_kvfree((pagetable_t)child);
+			}
+		}
+	} 
+	kfree((void*)kpagetable);
+}
+
+
+void
+dupliu2k(pagetable_t pagetable, pagetable_t kpagetable, uint64 oldsz, uint64 newsz)
+{
+  if (newsz < oldsz)
+    return;
+  
+  oldsz = PGROUNDUP(oldsz);
+  
+  pte_t* pte_from;
+  pte_t* pte_to;
+  uint64 sz, pa;
+  
+  
+  uint flags;
+  for (sz = oldsz; sz < newsz; sz += PGSIZE)
+  {
+    if ((pte_from = walk(pagetable, sz, 0)) == 0)
+      panic("dupliu2k: PTE not exist!");
+    if ((pte_to = walk(kpagetable, sz, 1)) == 0)
+      panic("dupliu2k: alloc failed!");
+    pa = PTE2PA(*pte_from);
+    // A page with PTE_U set cannot be accessed in kernel mode, so clear PTE_U
+    flags = (PTE_FLAGS(*pte_from) & (~PTE_U));
+    *pte_to = PA2PTE(pa) | flags;
+  }
 }

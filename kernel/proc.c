@@ -124,7 +124,7 @@ found:
   }
 
   //  Setting a kernel page table for per process
-  pagetable_t kpagetable = per_kvminit(p->kstack);
+  pagetable_t kpagetable = per_kvminit(p);
   if(kpagetable == 0){
     freeproc(p);
     release(&p->lock);
@@ -151,13 +151,14 @@ found:
 static void
 freeproc(struct proc *p)
 {
+  if(p->kpagetable)
+    proc_freekpagetable(p);
+
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
-  if(p->kpagetable)
-    per_proc_freepagetable(p);
   p->pagetable = 0;
   p->kpagetable = 0;
   p->sz = 0;
@@ -214,9 +215,9 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
 }
 
 void
-per_proc_freepagetable(struct proc* p)
+proc_freekpagetable(struct proc* p)
 {
-  per_kvfree(p->kpagetable, p->kstack);
+  per_kvfree(p->kpagetable);
 }
 
 // a user program that calls exec("/init")
@@ -244,6 +245,8 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+  
+  dupliu2k(p->pagetable, p->kpagetable, 0, p->sz);
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -267,11 +270,15 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
+    if (PGROUNDUP(sz + n) >= PLIC)
+      return -1;
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    dupliu2k(p->pagetable, p->kpagetable, sz-n, sz);
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
+    dupliu2k(p->pagetable, p->kpagetable, sz, sz-n);
   }
   p->sz = sz;
   return 0;
@@ -298,6 +305,8 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  dupliu2k(np->pagetable, np->kpagetable, 0, np->sz);
 
   np->parent = p;
 
