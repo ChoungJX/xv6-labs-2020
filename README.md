@@ -3,7 +3,7 @@
 
 
 ### Doing
-**Lab5:Lazy allocation**
+**Lab5:Lazy allocation** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/lazy)
 
 
 ### Finished
