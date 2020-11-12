@@ -69,19 +69,31 @@ usertrap(void)
     // ok
   } else if(r_scause() == 13 || r_scause() == 15){
     uint64 get_addr = r_stval();
-    get_addr = PGROUNDDOWN(get_addr);
+    if (get_addr >= p->sz){
+      printf("usertrap(): this virtual address is greater than limit!\n");
+      p->killed = 1;
+      goto finish_cope;
+    }
+    
+    if (get_addr <= PGROUNDDOWN(p->trapframe->sp)){
+      printf("usertrap(): this virtual address is smaller than limit!\n");
+      p->killed = 1;
+      goto finish_cope;
+    }
     
     char *mem;
     mem = kalloc();
     if(mem == 0){
       p->killed = 1;
-      printf("kalloc failed!");
+      printf("usertrap(): kalloc failed!\n");
+      goto finish_cope;
     }
     memset(mem, 0, PGSIZE);
-    if(mappages(p->pagetable, get_addr, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
+
+    if(mappages(p->pagetable, PGROUNDDOWN(get_addr), PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
       kfree(mem);
       p->killed = 1;
-      printf("mappages failed!");
+      printf("usertrap(): mappages failed!\n");
     }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
@@ -89,6 +101,7 @@ usertrap(void)
     p->killed = 1;
   }
 
+finish_cope:
   if(p->killed)
     exit(-1);
 
