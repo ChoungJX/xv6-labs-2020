@@ -67,12 +67,30 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  } else if(r_scause() == 13 || r_scause() == 15){
+    uint64 get_addr = r_stval();
+    if (get_addr >= MAXVA){
+      p->killed = 1;
+      goto finish_cope;
+    }
+
+    // For stacktest
+    if (get_addr <= PGROUNDDOWN(p->trapframe->sp) && get_addr >= PGROUNDDOWN(p->trapframe->sp) - PGSIZE){
+      p->killed = 1;
+      goto finish_cope;
+    }
+    
+    if (copy_on_write_trigger(p->pagetable, get_addr) != 0){
+      p->killed = 1;
+      goto finish_cope;
+    }
+  }else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
   }
 
+finish_cope:
   if(p->killed)
     exit(-1);
 
