@@ -2,8 +2,8 @@
 ## MIT 6.S081 (See:[https://pdos.csail.mit.edu/6.828/2020/schedule.html](https://pdos.csail.mit.edu/6.828/2020/schedule.html))
 
 
-### Doing
-**Lab5:Lazy allocation** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/lazy)
+### Ongoing
+**Lab7:Multithreading** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/thread)
 
 
 ### Finished
@@ -14,3 +14,7 @@
 **Lab3:Page tables** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/pgtbl)
 
 **Lab4:Traps** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/traps)
+
+**Lab5:Lazy allocation** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/lazy)
+
+**Lab6:Copy-on-Write Fork** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/cow)
