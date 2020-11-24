@@ -3,7 +3,7 @@
 
 
 ### Ongoing
-**Lab7:Multithreading** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/thread)
+**Lab7:Lock** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/lock)
 
 
 ### Finished
@@ -18,3 +18,5 @@
 **Lab5:Lazy allocation** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/lazy)
 
 **Lab6:Copy-on-Write Fork** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/cow)
+
+**Lab7:Multithreading** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/thread)
