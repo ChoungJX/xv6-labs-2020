@@ -8,5 +8,8 @@ struct buf {
   struct buf *prev; // LRU cache list
   struct buf *next;
   uchar data[BSIZE];
+
+  uint64 time; // recently used time
+  int used;    // has this block been used by cache?
 };
 
