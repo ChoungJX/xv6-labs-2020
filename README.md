@@ -3,7 +3,7 @@
 
 
 ### Ongoing
-**Lab7:Lock** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/lock)
+**Lab9:Lock** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/fs)
 
 
 ### Finished
@@ -20,3 +20,5 @@
 **Lab6:Copy-on-Write Fork** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/cow)
 
 **Lab7:Multithreading** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/thread)
+
+**Lab8:Lock** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/lock)
