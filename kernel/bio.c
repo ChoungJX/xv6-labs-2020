@@ -101,15 +101,8 @@ bget(uint dev, uint blockno)
   }
 
   acquire(&access_lock);
-  if(b_remove_bucket_number != bucket_number){
-    // acquire(&bcache[b_remove_bucket_number].lock);
-    b_remove->used = 0;
-    // release(&bcache[b_remove_bucket_number].lock);
-  }else
-  {
-    b_remove->used = 0;
-  }
-  release(&access_lock);
+  b_remove->used = 0;
+
   
   acquire(&bcache[bucket_number].lock);  // aquire this lock again (see line 78)
   for(int i = 0; i < NBUF; i++){
@@ -127,7 +120,7 @@ bget(uint dev, uint blockno)
   b->time = ticks;
     
   release(&bcache[bucket_number].lock);
-  
+  release(&access_lock);
 
   acquiresleep(&b->lock);
   return b;
