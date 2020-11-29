@@ -75,11 +75,11 @@ bget(uint dev, uint blockno)
       }
     }
   }
-  // release(&bcache[bucket_number].lock);
+  release(&bcache[bucket_number].lock);  // temporary release it to allow other CPUs to acquire.(enhance performance)
 
   // Not cached.
   // Recycle the least recently used (LRU) unused buffer.
-  // acquire(&bcache[bucket_number].lock);
+  
   struct buf *b_remove = 0;
   int b_remove_bucket_number = -1;
 
@@ -111,7 +111,7 @@ bget(uint dev, uint blockno)
   }
   release(&access_lock);
   
-  // acquire(&bcache[bucket_number].lock);
+  acquire(&bcache[bucket_number].lock);  // aquire this lock again (see line 78)
   for(int i = 0; i < NBUF; i++){
     if(bcache[bucket_number].buf[i].used == 0){
       b = &bcache[bucket_number].buf[i];
