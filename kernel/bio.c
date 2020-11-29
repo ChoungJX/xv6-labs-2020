@@ -83,7 +83,6 @@ bget(uint dev, uint blockno)
   struct buf *b_remove = 0;
   int b_remove_bucket_number = -1;
 
-  acquire(&access_lock);
   uint min_time = ticks + ticks;
   for(int i = 0; i < NBUCKET; i++){
     for(int j = 0; j < NBUF; j++){
@@ -101,6 +100,7 @@ bget(uint dev, uint blockno)
     panic("bget: no buffers");
   }
 
+  acquire(&access_lock);
   if(b_remove_bucket_number != bucket_number){
     // acquire(&bcache[b_remove_bucket_number].lock);
     b_remove->used = 0;
