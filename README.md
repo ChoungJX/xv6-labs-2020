@@ -3,7 +3,7 @@
 
 
 ### Ongoing
-**Lab9:Lock** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/fs)
+**Lab9:File System** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/fs)
 
 
 ### Finished
