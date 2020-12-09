@@ -447,3 +447,19 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+int
+ifdirty(pagetable_t pagetable ,uint64 va){
+  pte_t* pte;
+  
+  pte = walk(pagetable, va, 0);
+
+  if(pte == 0){
+    return 0;
+  }
+
+  if(PTE_FLAGS(*pte) & PTE_D){
+    return 1;
+  }
+  return 0;
+}

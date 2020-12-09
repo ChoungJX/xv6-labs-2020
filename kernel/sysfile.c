@@ -536,7 +536,11 @@ uint64 sys_munmap(){
       if(v->flags == MAP_SHARED){
         begin_op();
         ilock(v->pf->ip);
-        writei(v->pf->ip,1,addr,addr - v->addr + v->offset,length);
+        for(uint64 i = 0; i < length; i=i+PGSIZE){
+          if(ifdirty(p->pagetable, addr+i)){
+            writei(v->pf->ip,1,addr+i, addr + i - v->addr + v->offset, PGSIZE);
+          }
+        }
         iunlock(v->pf->ip);
         end_op();
       }
