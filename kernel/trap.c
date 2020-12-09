@@ -5,6 +5,10 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "fcntl.h"
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -67,12 +71,73 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if(r_scause() == 13 || r_scause() == 15){
+    uint64 get_addr = r_stval();
+    if (get_addr >= p->sz){
+      printf("usertrap(): this virtual address is greater than limit!\n");
+      p->killed = 1;
+      goto finish_cope;
+    }
+    
+    if (get_addr <= PGROUNDDOWN(p->trapframe->sp)){
+      printf("usertrap(): this virtual address is smaller than limit!\n");
+      p->killed = 1;
+      goto finish_cope;
+    }
+    
+    char *mem;
+    mem = kalloc();
+    if(mem == 0){
+      p->killed = 1;
+      printf("usertrap(): kalloc failed!\n");
+      goto finish_cope;
+    }
+    memset(mem, 0, PGSIZE);
+
+    // ===========for mmap=============
+    struct vma* v = 0;
+    for(int i = 0; i < NVMA; i++){
+      v = &p->vmalist[i];
+      if(get_addr >= v->addr && get_addr < v->addr + v->length && v->used == 1){
+        int perm = PTE_U;
+        if(v->prot & PROT_READ){
+          perm = perm | PTE_R;
+        }
+        if(v->prot & PROT_WRITE){
+          perm = perm | PTE_W;
+        }
+        if(v->prot & PROT_EXEC){
+          perm = perm | PTE_X;
+        }
+        if(mappages(p->pagetable, PGROUNDDOWN(get_addr), PGSIZE, (uint64)mem, perm) != 0){
+          kfree(mem);
+          p->killed = 1;
+          printf("usertrap(): mappages failed!\n");
+          goto finish_cope;
+        }
+
+        begin_op();
+        ilock(v->pf->ip);
+        readi(v->pf->ip,1,get_addr, get_addr - v->addr + v->offset ,PGSIZE);
+        iunlock(v->pf->ip);
+        end_op();
+        goto finish_cope;
+      }
+    }
+    // ==================end====================
+
+    if(mappages(p->pagetable, PGROUNDDOWN(get_addr), PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
+      kfree(mem);
+      p->killed = 1;
+      printf("usertrap(): mappages failed!\n");
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
   }
 
+finish_cope:
   if(p->killed)
     exit(-1);
 

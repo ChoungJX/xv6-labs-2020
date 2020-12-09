@@ -5,6 +5,10 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "sleeplock.h"
+#include "fcntl.h"
+#include "fs.h"
+#include "file.h"
 
 struct cpu cpus[NCPU];
 
@@ -302,6 +306,14 @@ fork(void)
 
   np->state = RUNNABLE;
 
+  memmove((void*)np->vmalist, (void*)p->vmalist, sizeof(struct vma) * NVMA);
+  for(int i = 0; i < NVMA; i++){
+    if(p->vmalist[i].used == 1){
+      filedup(p->vmalist[i].pf);
+      // uvmunmap(np->pagetable,np->vmalist[i].addr,PGROUNDUP(np->vmalist[i].length)/PGSIZE,1);
+    }
+  }
+
   release(&np->lock);
 
   return pid;
@@ -350,6 +362,15 @@ exit(int status)
       struct file *f = p->ofile[fd];
       fileclose(f);
       p->ofile[fd] = 0;
+    }
+  }
+
+  struct vma* v = 0;
+  for(int i = 0; i < NVMA; i++){
+    v = &p->vmalist[i];
+    if(v->used == 1){
+      uvmunmap(p->pagetable,v->addr,PGROUNDUP(v->length/PGSIZE),1);
+      // v->used = 0;
     }
   }
 
