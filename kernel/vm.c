@@ -7,6 +7,7 @@
 #include "fs.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "kalloc.h"
 
 /*
  * the kernel's page table.
@@ -318,7 +319,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  //char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -327,11 +328,26 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       continue;
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+
+    if (flags & PTE_W){
+      // For COW's flag
+      flags = flags | PTE_RSW;
+      flags = flags & (~PTE_W);
+
+      *pte = PA2PTE(pa) | flags;
+    }
+
+    struct ref_count* ref_c;
+    ref_c = myref_count();
+    acquire(&ref_c->lock);
+    ref_c->number[pa / PGSIZE]++;
+    release(&ref_c->lock);
+
+    // if((mem = kalloc()) == 0)
+    //   goto err;
+    // memmove(mem, (char*)pa, PGSIZE);
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
+      // kfree(mem);
       goto err;
     }
   }
@@ -365,6 +381,11 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
+    // if(va0 >= MAXVA)
+    //   return -1;
+    // if(copy_on_write_trigger(pagetable, va0) != 0){
+    //   return -1;
+    // }
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
@@ -460,6 +481,62 @@ ifdirty(pagetable_t pagetable ,uint64 va){
 
   if(PTE_FLAGS(*pte) & PTE_D){
     return 1;
+  }
+  return 0;
+}
+
+int
+copy_on_write_entry(pagetable_t pagetable, uint64 va){
+  pte_t* pte;
+  pte = walk(pagetable,va,0);
+  if(pte == 0){
+    return 0;
+  }
+
+  int flags = PTE_FLAGS(*pte);
+
+  if(flags & PTE_RSW){
+    return 1;
+  }
+  return 0;
+}
+
+int
+copy_on_write_trigger(pagetable_t pagetable, uint64 va)
+{
+  uint64 pa;
+  pte_t* pte;
+  uint flags;
+
+  pte = walk(pagetable,va,0);
+  if(pte == 0){
+    return -1;
+  }
+
+  pa = PTE2PA(*pte);
+
+  // For sbrkfail
+  // if (pa == 0)
+  // {
+  //   return -1;
+  // }
+
+  flags = PTE_FLAGS(*pte);
+
+  if (flags & PTE_RSW){
+    char* mem = kalloc();
+    if (mem == 0){
+      return -1;
+    }
+    memmove(mem, (char*)pa, PGSIZE);
+    
+    flags = flags & ~PTE_RSW;
+    flags = flags | PTE_W;
+    *pte = PA2PTE(mem) | flags;
+
+
+    kfree((void*)pa);
+    return 0;
   }
   return 0;
 }

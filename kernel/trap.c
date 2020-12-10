@@ -73,6 +73,27 @@ usertrap(void)
     // ok
   } else if(r_scause() == 13 || r_scause() == 15){
     uint64 get_addr = r_stval();
+
+    int entry_flag = copy_on_write_entry(p->pagetable, get_addr);
+    if( entry_flag== 1){
+      if (get_addr >= MAXVA){
+        p->killed = 1;
+        goto finish_cope;
+      }
+      // For stacktest
+      if (get_addr <= PGROUNDDOWN(p->trapframe->sp) && get_addr >= PGROUNDDOWN(p->trapframe->sp) - PGSIZE){
+        p->killed = 1;
+        goto finish_cope;
+      }
+      if (copy_on_write_trigger(p->pagetable, get_addr) != 0){
+        p->killed = 1;
+        goto finish_cope;
+      }
+      if(p->killed == 1){
+      }
+      goto finish_cope;
+    }
+
     if (get_addr >= p->sz){
       printf("usertrap(): this virtual address is greater than limit!\n");
       p->killed = 1;

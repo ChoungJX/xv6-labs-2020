@@ -63,6 +63,7 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+struct ref_count*   myref_count(void);
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -172,6 +173,8 @@ int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
 int             ifdirty(pagetable_t, uint64);
+int             copy_on_write_trigger(pagetable_t, uint64);
+int             copy_on_write_entry(pagetable_t, uint64);
 
 // plic.c
 void            plicinit(void);
