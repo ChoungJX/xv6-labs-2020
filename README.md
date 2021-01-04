@@ -2,11 +2,6 @@
 ## MIT 6.S081 (See:[https://pdos.csail.mit.edu/6.828/2020/schedule.html](https://pdos.csail.mit.edu/6.828/2020/schedule.html))
 
 
-### Ongoing
-**Lab11:networking** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/net)
-
-
-### Finished
 **Lab1:Utilities** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/util)
 
 **Lab2:System calls** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/syscall)
@@ -26,3 +21,5 @@
 **Lab9:File System** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/fs)
 
 **Lab10:mmap** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/mmap)
+
+**Lab11:networking** --> [Code](https://github.com/ChoungJX/xv6-labs-2020/tree/net)
